@@ -1,0 +1,1263 @@
+---
+title: "Informe genero final"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Se cargan las librerias necesarias
+setwd("~/GitHub/informegenero")
+library(ggtext)
+library(eph)
+library(tidyverse)
+library(formattable)
+library(Hmisc)
+library(readxl)
+library(foreign)
+library(glue)
+library(extrafont)
+library(ggalt)
+library(waffle)
+library(ggimage)
+library(spatstat)
+library(splitstackshape)
+library(purrr)
+library(treemapify)
+library(scales)
+
+font_import(paths = "~/GitHub/informegenero/Open_Sans")
+loadfonts(device = "win", quiet=T)
+
+#Segundo trimestre 2020
+aglomerados<-read_excel("aglomerado.xlsx", sheet = 4)
+colores<- c("#29aee4","#0c8136","#e22172","#f4a018","#428cb4","#c85687","#dbac2f","#5da14a","#ff9a00")
+gradiente<- c("#ed3068","#ef4275","#f3789d","#f69cb7","#fbd2de")
+
+ephi<- get_microdata(year=2020, trimester = 3, type = "individual")
+ephh <- get_microdata(year=2020, trimester = 3, type = "hogar")
+canastas<- read.csv("canasta.csv", sep=";", dec=".", header = TRUE)
+
+eph3t<- left_join(ephi, ephh)
+eph3t<- left_join(eph3t,aglomerados)
+eph3t<- left_join(eph3t,eph::adulto_equivalente)
+eph3t<- left_join(eph3t,canastas)
+eph3t<- eph3t %>% group_by(ANO4, TRIMESTRE, AGLOMERADO, CODUSU,NRO_HOGAR) %>% mutate(EAF=sum(adequi)) %>% ungroup()
+
+eph3t<- eph3t %>% mutate(POBRE=case_when((EAF*CBT)>=ITF~1,
+                                         (EAF*CBT)<ITF~0),
+                         INDIGENTE=case_when((EAF*CBA)>=ITF~1,
+                                         (EAF*CBA)<ITF~0))
+eph3t %>% select(POBRE,INDIGENTE,ITF,CBA, CBT,EAF)
+
+
+eph3t <- eph3t %>%filter(ESTADO!=0)  %>%    mutate(Sexo=as.character(CH04),
+                      Sexo=case_when(Sexo=="1" ~ "Hombres",
+                                       Sexo=="2" ~ "Mujeres"),
+                      Vacaciones = case_when(PP07G1 == 1 ~ "Sí",
+                                      PP07G1 == 2 ~ "No"),
+                      Aguinaldo = case_when(PP07G2 == 1 ~ "Sí",
+                               PP07G2 == 2 ~ "No"),
+                      Diasporenfermedad = case_when(PP07G3 == 1 ~ "Sí",
+                                     PP07G3 == 2 ~ "No"),
+                      Obrasocial = case_when(PP07G4 == 1 ~ "Sí",
+                                 PP07G4 == 2 ~ "No"),
+                      Descuentojubilatorio = case_when(PP07H == 1 ~ "Sí",
+                                           PP07H == 2 ~ "No"),
+                      CH14=as.numeric(CH14),
+                      añoalc=case_when(CH14 %in% c(98,99)~ NaN ,
+                                           TRUE ~ CH14),
+                      aeduc=case_when(CH12==1 ~ 0,
+                                              CH12==2 & CH13==2~añoalc,
+                                              CH12==2 & CH13==1 ~ 6,
+                                              CH12==3 & CH13==2 ~ añoalc,
+                                              CH12==3 & CH13==1 ~ 9,
+                                              CH12==4 & CH13==2 ~ 6+añoalc,
+                                              CH12==4 & CH13==1 ~ 12,
+                                              CH12==5 & CH13==2 ~ 9+añoalc,
+                                              CH12==5 & CH13==1 ~ 12,
+                                              CH12 %in% c(6,7) & CH13==2 ~ 12+añoalc,
+                                              CH12==6 & CH13==1 ~ 16,
+                                              CH12==7 & CH13==1 ~ 17,
+                                              CH12==8 & CH13==2 ~ 17+añoalc,
+                                              CH12==8 & CH13==1 ~ 21),
+                       edad=case_when(CH06>=18 & CH06<29 ~ "18 a 28",
+                                     CH06>=29 & CH06<40 ~ "29 a 39",
+                                     CH06>=40 & CH06<51 ~ "40 a 50",
+                                     CH06>=51 & CH06<62 ~ "51 a 61",
+                                     CH06>=61 ~ "61+"),
+                        PP04D_COD = case_when(nchar(PP04D_COD) == 5 ~ PP04D_COD,
+                                              nchar(PP04D_COD) == 4 ~ paste0("0", PP04D_COD),
+                                              nchar(PP04D_COD) == 3 ~ paste0("00", PP04D_COD),
+                                              nchar(PP04D_COD) == 2 ~ paste0("000", PP04D_COD),
+                                              nchar(PP04D_COD) == 1 ~ paste0("0000", PP04D_COD)),
+                        CALIFICACION = substr(PP04D_COD, 5, 5),
+                      
+                        JERARQUIA = substr(PP04D_COD, 3, 3),
+                        JERARQUIA = case_when(JERARQUIA=="0" ~ "Dirección",
+                                              JERARQUIA=="2" ~ "Jefes",
+                                              JERARQUIA=="1" ~ "Cuentapropia",
+                                              JERARQUIA=="3" ~ "Trabajadores\nAsalariados"),
+                        JERARQUIA = factor(JERARQUIA, c("Dirección", "Jefes", "Trabajadores\nAsalariados", "Cuentapropia")),
+                        PEA= case_when(ESTADO==3 ~ 0,
+                                       ESTADO==4 ~ 0,
+                                       ESTADO==1 ~ 1,
+                                       ESTADO==2 ~ 1),
+                        PP04D_COD = as.character(PP04D_COD),
+    
+                        CALIFICACION = case_when(CALIFICACION=="1" ~ "Profesionales",
+                                                   CALIFICACION=="2" ~ "Técnicos",
+                                                   CALIFICACION=="3" ~ "Operativos",
+                                                   CALIFICACION=="4" ~ "No Calificados"),
+                        CALIFICACION = factor(CALIFICACION, c("No Calificados", "Operativos", "Técnicos", "Profesionales")),
+                          PP04B_COD=as.character(PP04B_COD),
+                          PP04B_COD=case_when(nchar(PP04B_COD)==4~PP04B_COD,
+                                              nchar(PP04B_COD)==1~ paste0("0",PP04B_COD,"00"),
+                                              nchar(PP04B_COD)==2~ paste0(PP04B_COD,"00"),
+                                              nchar(PP04B_COD)==3~ paste0("0",PP04B_COD)),
+                          SECTOR= substr(PP04B_COD,1,2),
+                          HORASSEM=PP3E_TOT+PP3F_TOT,
+                          niveled=case_when(NIVEL_ED==1 | NIVEL_ED==7 ~ "Sin\ninstrucción",
+                                            NIVEL_ED %in% c(2,3) ~ "Primario\nCompleto",
+                                            NIVEL_ED %in% c(4,5)~ "Secundario\nCompleto",
+                                            NIVEL_ED == 6 ~ "Superior/Universitario\ncompleto"),
+                          niveled=factor(niveled, levels = c("Sin\ninstrucción","Primario\nCompleto","Secundario\nCompleto","Superior/Universitario\ncompleto")),
+                        JEFE = case_when(CH03==1 ~ 1,
+                                         CH03 %in% c(2,3,4,5,6,7,8,9,10) ~ 0),
+                        HIJO = case_when(CH03==3 ~ 1,
+                                           CH03 %in% c(1,2,4,5,6,7,8,9,10) ~ 0))
+
+caes<- read.csv("SECTORESCAES.csv", sep = ";", colClasses = "character")
+eph3t<- left_join(eph3t,caes)
+
+
+eahu <- read.dta("Individual_EAHU_13.dta")
+etnr <- read.dta("microdatos_TNR.dta" )
+
+eahutotal <- left_join(etnr, eahu, by=c("CODUSU", "componente", "nro_hogar", "ano4"))
+
+eahutotal <- eahutotal %>%  mutate(Sexo=as.character(ch04),
+                        Sexo=case_when(Sexo=="Varón" ~ "Hombres",
+                                       Sexo=="Mujer" ~ "Mujeres"),
+                        horassemanalestnr= tiempo_tdnr*7,
+                        horassemanalestr=pp3e_tot+pp3f_tot,
+                       edad=case_when(ch06>=18 & ch06<29 ~ "18 a 28",
+                                     ch06>=29 & ch06<40 ~ "29 a 39",
+                                     ch06>=40 & ch06<51 ~ "40 a 50",
+                                     ch06>=51 & ch06<62 ~ "51 a 61",
+                                     ch06>=61 ~ "61+"))
+
+
+```
+
+## Caracterizacion del mercado laboral
+
+### Mujeres totales: 159429
+```{r}
+masde15 <- eph3t %>%  filter(CH06>=15 & AGLOMERADO==12 & ESTADO!=0)
+masde15  %>% group_by(Sexo) %>% summarise(porcentaje=percent((sum(PONDERA)/sum(masde15$PONDERA)),2), sum(PONDERA))
+```
+### Inactivas: 101049
+
+
+```{r}
+inactivas <- eph3t %>% filter (CH06>=15 & AGLOMERADO==12 & ESTADO==3)
+inactivas %>% group_by(Sexo) %>% summarise((sum(PONDERA)/sum(inactivas$PONDERA)), sum(PONDERA))
+```
+
+### Jubiladas:31551
+
+```{r}
+jubiladas <- eph3t %>%  filter(CH06>=15 & AGLOMERADO==12 & ESTADO==3 & CAT_INAC==1)
+jubiladas %>% group_by(Sexo) %>%  summarise ((sum(PONDERA)/sum(jubiladas$PONDERA)), sum(PONDERA))
+```
+
+
+```{r}
+#Amas de casa: 33209
+amasdecasa <- eph3t %>% filter(CH06>=15 & AGLOMERADO==12 & ESTADO==3 & CAT_INAC==4)
+amasdecasa %>% group_by(Sexo) %>% summarise((sum(PONDERA)/sum(amasdecasa$PONDERA)), sum(PONDERA))
+```
+
+
+```{r}
+#Estudiantes: 29829	
+estudiantes <- eph3t %>% filter (CH06>=15 & AGLOMERADO==12 & ESTADO==3 & CAT_INAC==3)
+estudiantes %>% group_by(Sexo) %>%  summarise((sum(PONDERA)/sum(estudiantes$PONDERA)), sum(PONDERA))
+```
+
+
+```{r}
+#Activas:68245	
+activas <- eph3t %>% filter (CH06>=15 & AGLOMERADO==12 & ESTADO!=0 & ESTADO!=3)
+activas %>% group_by(Sexo) %>% summarise((sum(PONDERA)/sum(activas$PONDERA)), sum(PONDERA))
+```
+
+
+```{r}
+#Ocupadas: 63250	
+ocupadas <- eph3t %>% filter(AGLOMERADO==12 & ESTADO==1 & CH06>=15)
+ocupadas %>% group_by(Sexo) %>% summarise((sum(PONDERA)/sum(ocupadas$PONDERA)), sum(PONDERA))
+```
+
+
+```{r}
+#Desocupadas: 5196
+desocupadas <- eph3t %>% filter(AGLOMERADO==12 & ESTADO==2 & CH06>=15)
+desocupadas %>% group_by(Sexo) %>% summarise((sum(PONDERA)/sum(desocupadas$PONDERA)), sum(PONDERA))
+```
+
+
+```{r}
+#Trabajadoras de servicio domestico:5446
+casas <- eph3t %>% filter (AGLOMERADO==12 & ESTADO==1 & PP04B1==1)
+casas %>%  group_by(Sexo) %>%  summarise((sum(PONDERA)/sum(casas$PONDERA)), sum(PONDERA))
+```
+
+
+```{r}
+#Trabajadoras en casas particulares registradas: 1789
+casasregis <- eph3t %>% filter (AGLOMERADO==12 & ESTADO==1 & PP04B1==1 & PP07H==1)
+casasregis %>%  group_by(Sexo) %>%  summarise((sum(PONDERA)/sum(casasregis$PONDERA)), sum(PONDERA))
+```
+
+
+```{r}
+#Trabajadoras ras en casas particulares no registradas:3657
+casasnoregis <- eph3t %>% filter (AGLOMERADO==12 & ESTADO==1 & PP04B1==1 & PP07H==2)
+casasnoregis %>%  group_by(Sexo) %>%  summarise((sum(PONDERA)/sum(casasnoregis$PONDERA)), sum(PONDERA))
+```
+
+
+```{r}
+#Asalariadas: 36314
+asalariadas <- eph3t %>% filter (AGLOMERADO==12 & ESTADO==1 & PP04B1!=1 & CAT_OCUP==3)
+asalariadas %>% group_by(Sexo) %>%  summarise((sum(PONDERA)/sum(asalariadas$PONDERA)), sum(PONDERA))
+```
+
+
+```{r}
+#Asalariadas registradas: 24642
+asalariadasregis <- eph3t %>% filter (AGLOMERADO==12 & ESTADO==1 & PP04B1!=1 & CAT_OCUP==3 & PP07H==1)
+asalariadasregis %>% group_by(Sexo) %>%  summarise((sum(PONDERA)/sum(asalariadasregis$PONDERA)), sum(PONDERA))
+```
+
+
+```{r}
+#Asalariadas no registradas:11672
+asalariadasnoregis <- eph3t %>% filter (AGLOMERADO==12 & ESTADO==1 & PP04B1!=1 & CAT_OCUP==3 & PP07H==2)
+asalariadasnoregis %>% group_by(Sexo) %>%  summarise((sum(PONDERA)/sum(asalariadasnoregis$PONDERA)), sum(PONDERA))
+```
+
+
+```{r}
+#No asalariadas: 13170
+noasalariadas <- eph3t %>% filter (AGLOMERADO==12 & ESTADO==1 & PP04B1!=1 & CAT_OCUP!=3)
+noasalariadas %>% group_by(Sexo) %>%  summarise((sum(PONDERA)/sum(noasalariadas$PONDERA)), sum(PONDERA))
+
+```
+## Brecha según calificación 
+### Brecha de ingresos
+#NO CALIFICADOS
+```{r}
+nocaling <- eph3t %>% filter(CALIFICACION=="No Calificados" & AGLOMERADO==12)
+ingresopromnocal <- nocaling %>% summarise(ingresopromnocal = weighted.mean(P21, PONDIIO))
+ingresopromnocal
+
+nocalingsex <- nocaling %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO)) 
+nocalingsex<- nocalingsex %>% pivot_wider(names_from = Sexo, values_from=`Salario promedio`)
+nocalingsex
+
+
+nocalingsexg <- nocaling %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO), calif="No Calificados")
+nocalingsexg
+
+#Brecha
+nocalingsex<- nocalingsex %>% summarise("Brecha No Calificados"=percent(((Hombres-Mujeres)/Hombres),2))
+
+nocalingsexg <- nocalingsexg %>% mutate(brecha= nocalingsex %>% pull("Brecha No Calificados")) 
+nocalingsexg
+```
+
+#OPERATIVOS
+```{r}
+opering <- eph3t %>% filter(CALIFICACION=="Operativos" & AGLOMERADO==12)
+ingresopromoper <- opering %>% summarise(ingresopromoper = weighted.mean(P21, PONDIIO))
+ingresopromoper
+
+operingsex <- opering %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO)) 
+operingsex<- operingsex %>% pivot_wider(names_from = Sexo, values_from=`Salario promedio`)
+operingsex
+
+operingsexg <- opering %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO), calif="Operativos")
+operingsexg
+
+#Brecha
+operingsex<- operingsex %>% summarise("Brecha Operativos"=percent(((Hombres-Mujeres)/Hombres),2))
+
+operingsexg <- operingsexg %>% mutate(brecha= operingsex %>% pull("Brecha Operativos")) 
+operingsexg
+```
+
+#TECNICOS
+```{r}
+tecning <- eph3t %>% filter(CALIFICACION=="Técnicos" & AGLOMERADO==12)
+ingresopromtecn <- tecning %>% summarise(ingresopromtecn = weighted.mean(P21, PONDIIO))
+ingresopromtecn
+
+tecningsex <- tecning %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO)) 
+tecningsex <- tecningsex %>% pivot_wider(names_from = Sexo, values_from=`Salario promedio`)
+tecningsex
+
+tecningsexg <- tecning %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO), calif="Técnicos")
+tecningsexg
+
+#Brecha
+tecningsex<- tecningsex %>% summarise("Brecha Tecnicos"=percent(((Hombres-Mujeres)/Hombres),2))
+
+tecningsexg <- tecningsexg %>% mutate(brecha= tecningsex %>% pull("Brecha Tecnicos")) 
+tecningsexg
+```
+
+#PROFESIONALES
+```{r}
+profing <- eph3t %>% filter(CALIFICACION=="Profesionales" & AGLOMERADO==12)
+ingresopromprof <- profing %>% summarise(ingresopromprof = weighted.mean(P21, PONDIIO))
+ingresopromprof
+
+profingsex <- profing %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO)) 
+profingsex <- profingsex %>% pivot_wider(names_from = Sexo, values_from=`Salario promedio`)
+profingsex
+
+profingsexg <- profing %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO), calif="Profesionales")
+profingsexg
+
+#Brecha
+profingsex<- profingsex %>% summarise("Brecha Profesionales"=percent(((Hombres-Mujeres)/Hombres),2))
+
+profingsexg <- profingsexg %>% mutate(brecha= profingsex %>% pull("Brecha Profesionales")) 
+profingsexg
+
+```
+## Gráfico de ingresos por calificación
+```{r}
+library(ggalt)
+
+
+califg<- bind_rows(nocalingsexg,operingsexg,tecningsexg,profingsexg)
+califg<- califg %>%  pivot_wider (names_from = Sexo, values_from="Salario promedio")
+
+califg<- califg %>% mutate(x= if_else(condition=Hombres>Mujeres,true = ((Hombres-Mujeres)/2+Mujeres), false = (Mujeres-Hombres)/2+Hombres))
+
+califg<- califg %>% mutate(brecha= glue("<span style>**{brecha}**</span>"))
+califg$calif<- factor(califg$calif, levels = c("No Calificados", "Operativos" ,"Técnicos","Profesionales" ))
+
+grafico_b<-califg %>% ggplot( mapping = aes(y=calif, group=calif))   +  geom_dumbbell( aes(x=Mujeres,xend=Hombres), colour_x = colores[2], colour_xend = colores[1], size_x = 3, size_xend = 3) + geom_richtext(aes(x=x,y=calif, label=brecha), position = position_nudge(y=0.25), size=3, label.color= NA , fill=NA, family="Open Sans")  + labs(fill="", title = "Salario promedio de <span style='color: #29aee4;'>**Hombres**</span>, <span style='color: #0c8136;'>**Mujeres**</span> y <span style>**brecha salarial**</span> s/ calificación laboral", subtitle = "Tercer trimestre 2020", caption = "")+ ylab("") + xlab("") + scale_x_continuous(n.breaks = 10, labels=scales::dollar_format())+ theme(axis.title = element_text(), axis.text = element_text(color = "BLACK"), legend.position = "right", title = element_text(), panel.grid.major = element_blank(), legend.text = element_text(), panel.background = element_blank()) 
+grafico_b  + scale_fill_manual(values = colores, aesthetics = "color")  + labs(color="") + theme(legend.key = element_blank(), panel.grid.major.y =  element_line(colour = "BLACK", linetype = "dotted"), axis.text.y = element_text(hjust = 0), plot.title.position = "plot", plot.title = element_markdown(), text = element_text(family = "Open Sans" ))
+
+#ggsave("brechaingscalif.svg", width = 25, height = 15 ,units = "cm")
+```
+
+
+
+###Ocupados
+#No calificados
+```{r}
+nocalif <- eph3t %>% filter(CALIFICACION=="No Calificados" & AGLOMERADO==12)
+nocalif <- nocalif %>% group_by(Sexo) %>% summarise(porcentaje=percent((sum(PONDERA)/(sum(nocalif$PONDERA))),2), calif="No Calificados")
+nocalif
+```
+
+#Operativos
+```{r}
+operativos <- eph3t %>% filter(CALIFICACION=="Operativos" & AGLOMERADO==12)
+operativos <- operativos %>% group_by(Sexo) %>% summarise(porcentaje=percent((sum(PONDERA)/(sum(operativos$PONDERA))),2), calif="Operativos")
+operativos
+```
+
+#Tecnicos
+```{r}
+tecnicos <- eph3t %>% filter(CALIFICACION=="Técnicos" & AGLOMERADO==12)
+tecnicos <- tecnicos %>% group_by(Sexo) %>% summarise(porcentaje=percent((sum(PONDERA)/(sum(tecnicos$PONDERA))),2), calif="Técnicos")
+tecnicos
+```
+
+#Profesionales
+```{r}
+profesionales <- eph3t %>% filter(CALIFICACION=="Profesionales" & AGLOMERADO==12)
+profesionales <- profesionales %>% group_by(Sexo) %>% summarise(porcentaje=percent((sum(PONDERA)/(sum(profesionales$PONDERA))),2), calif="Profesionales")
+profesionales
+
+```
+
+### Gráfico distribucion s calificacion
+```{r}
+califcomp<- bind_rows(nocalif, operativos, tecnicos,profesionales)
+califcomp$calif<- factor(califcomp$calif, levels = c("No Calificados", "Operativos" ,"Técnicos","Profesionales" ))
+
+califcomp %>% ggplot(mapping = aes(x=calif, y=porcentaje, fill=Sexo, label=porcentaje)) + geom_col(width = 0.7, show.legend = F) + geom_text(position = position_stack(vjust=0.5), size=3, show.legend = F, family="Open Sans")+ coord_flip() + scale_fill_manual(values = colores) + labs(title = "Ocupación s/ calificación de <span style = 'color: #29aee4;'>**Hombres**</span> y <span style='color: #0c8136;'>**Mujeres**</span>", subtitle = "Tercer trimestre 2020", caption = "", fill="") + xlab("") + ylab("%") + theme(title = element_text( size=10), text = element_text(size=9, family = "Open Sans") , panel.background = element_blank(),  axis.ticks = element_blank(), aspect.ratio = 1/6, plot.title = element_markdown(), plot.title.position = "plot", axis.text = element_text(color = "BLACK"), plot.background = element_rect(fill="WHITE")) 
+```
+
+
+
+
+
+## Brecha según jerarquía ocupacional
+
+### JEFES
+Cantidad personas
+```{r}
+jefes <- eph3t %>% filter(JERARQUIA=="Jefes" & AGLOMERADO==12)
+jefes <- jefes %>% group_by(Sexo) %>% summarise(porcentaje=percent((sum(PONDERA)/(sum(jefes$PONDERA))),2), jerar="Jefes")
+jefes
+```
+
+Ingresos
+```{r}
+jefing <- eph3t %>% filter(JERARQUIA=="Jefes" & AGLOMERADO==12)
+ingresopromjef <- jefing %>% summarise(ingresopromjef = weighted.mean(P21, PONDIIO))
+ingresopromjef
+
+jefingsex <- jefing %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO)) 
+
+jefingsexg <- jefing %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO), jerar="Jefes")
+jefingsexg
+
+jefingsex
+jefingsex<- jefingsex %>% pivot_wider(names_from = Sexo, values_from=`Salario promedio`)
+
+
+```
+
+Brecha
+```{r}
+jefingsex<- jefingsex %>% summarise("Brecha jefes"=percent(((Hombres-Mujeres)/Hombres),2))
+
+jefingsexg <- jefingsexg %>% mutate(brecha= jefingsex %>% pull("Brecha jefes")) 
+jefingsexg
+```
+
+### DIRECCIÓN
+Cantidad personas
+```{r}
+direc <- eph3t %>% filter(JERARQUIA=="Dirección" & AGLOMERADO==12)
+direc <- direc %>% group_by(Sexo) %>% summarise(porcentaje=percent((sum(PONDERA)/(sum(direc$PONDERA))),2), jerar="Dirección")
+direc
+
+```
+
+Ingresos
+```{r}
+direcing <- eph3t %>% filter(JERARQUIA=="Dirección" & AGLOMERADO==12)
+ingresopromdir <- direcing %>% summarise(ingresopromdir = weighted.mean(P21, PONDIIO))
+ingresopromdir
+
+direcingsex <- direcing %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO))  
+direcingsex
+
+direcingsexg <- direcing %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO), jerar="Dirección")
+direcingsexg
+
+direcingsex<- direcingsex %>% pivot_wider(names_from = Sexo, values_from="Salario promedio")
+```
+
+Brecha
+
+```{r}
+direcingsex<- direcingsex %>% summarise("Brecha directores"=percent(((Hombres-Mujeres)/Hombres),2))
+
+direcingsexg<- direcingsexg %>% mutate(brecha= direcingsex %>% pull("Brecha directores"))
+direcingsexg
+```
+### CUENTA PROPIA
+Cantidad personas
+
+```{r}
+cp <- eph3t %>% filter(JERARQUIA=="Cuentapropia" & AGLOMERADO==12)
+cp <- cp %>% group_by(Sexo) %>% summarise(porcentaje=percent((sum(PONDERA)/(sum(cp$PONDERA))),2), jerar="Cuentapropia")
+cp
+
+```
+
+Ingresos
+```{r}
+cping <- eph3t %>% filter(JERARQUIA=="Cuentapropia" & AGLOMERADO==12)
+ingresopromcp <- cping %>% summarise(ingresopromcp = weighted.mean(P21, PONDIIO))
+ingresopromcp
+
+cpingsex <- cping %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO))  
+cpingsex
+
+cpingsexg <- cping %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO), jerar="Cuentapropia")
+cpingsexg
+
+cpingsex<- cpingsex %>% pivot_wider(names_from = Sexo, values_from="Salario promedio")
+```
+
+Brecha
+
+```{r}
+cpingsex<- cpingsex %>% summarise("Brecha Cuentapropia"=percent(((Hombres-Mujeres)/Hombres),2))
+
+cpingsexg<- cpingsexg %>% mutate(brecha=cpingsex %>% pull("Brecha Cuentapropia")) 
+cpingsexg
+```
+
+### TRABAJADORES ASALARIADOS
+Cantidad personas
+```{r}
+tras <- eph3t %>% filter(JERARQUIA=="Trabajadores\nAsalariados" & AGLOMERADO==12)
+tras <- tras %>% group_by(Sexo) %>% summarise(porcentaje=percent((sum(PONDERA)/(sum(tras$PONDERA))),2), jerar="Trabajadores\nAsalariados")
+tras
+```
+
+
+
+
+Ingresos
+
+```{r}
+trasing <- eph3t %>% filter(JERARQUIA=="Trabajadores\nAsalariados" & AGLOMERADO==12)
+ingresopromtras <- trasing %>% summarise(ingresopromtras = weighted.mean(P21, PONDIIO))
+ingresopromtras
+
+trasingsex <- trasing %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO))  
+trasingsex
+
+trasingsexg <- trasing %>% group_by(Sexo) %>% summarise("Salario promedio"=weighted.mean(P21, PONDIIO), jerar="Trabajadores\nAsalariados")  
+trasingsexg
+
+trasingsex<- trasingsex %>% pivot_wider(names_from = Sexo, values_from="Salario promedio")
+```
+
+Brecha
+```{r}
+trasingsex<- trasingsex %>% summarise("Brecha Trabajadores Asalariados"=percent(((Hombres-Mujeres)/Hombres),2))
+
+trasingsexg<- trasingsexg %>% mutate(brecha=trasingsex %>% pull("Brecha Trabajadores Asalariados"))
+trasingsexg
+```
+### Gráfico jerarquias
+
+## Gráfico brechas de ingreso por jerarquia
+```{r warnings=FALSE}
+library(ggalt)
+jerarg<- bind_rows(jefingsexg, direcingsexg, cpingsexg,trasingsexg)
+jerarg<- jerarg %>%  pivot_wider (names_from = Sexo, values_from="Salario promedio")
+
+
+jerarg<- jerarg %>% mutate(x= if_else(condition=Hombres>Mujeres,true = ((Hombres-Mujeres)/2+Mujeres), false = (Mujeres-Hombres)/2+Hombres))
+
+jerarg<- jerarg %>% mutate(brecha= glue("<span style>**{brecha}**</span>"))
+
+jerarg$jerar<- factor(jerarg$jerar,levels = c("Cuentapropia","Trabajadores\nAsalariados","Jefes","Dirección"))
+
+grafico_a<-  jerarg %>% ggplot( mapping = aes(y=jerar, group=jerar))   +  geom_dumbbell( aes(x=Mujeres,xend=Hombres), colour_x = colores[2], colour_xend = colores[1], size_x = 3, size_xend = 3) + geom_richtext(aes(x=x,y=jerar, label=brecha), position = position_nudge(y=0.25), size=3, label.color= NA , fill=NA, family="Open Sans")  + labs(fill="", title = "Salario promedio de <span style='color: #29aee4;'>**Hombres**</span>, <span style='color: #0c8136;'>**Mujeres**</span> y <span style>**brecha salarial**</span> s/ jerarquía", subtitle = "Tercer trimestre 2020", caption = "")+ ylab("") + xlab("")+ scale_x_continuous(n.breaks = 8, labels=scales::dollar_format())+theme(axis.title = element_text(), axis.text = element_text(color = "BLACK"), legend.position = "right", title = element_text(), panel.grid.major = element_blank(), legend.text = element_text(), panel.background = element_blank()) 
+grafico_a  + scale_fill_manual(values = colores, aesthetics = "color")  + labs(color="") + theme(legend.key = element_blank(), panel.grid.major.y =  element_line(colour = "BLACK", linetype = "dotted"), axis.text.y = element_text(hjust = 0), plot.title.position = "plot", plot.title = element_markdown(), text = element_text(family = "Open Sans")) 
+#ggsave("brechasjerarquia.svg")
+
+```
+
+## Gráfico de composición por sexo por jerarquia
+
+```{r}
+jerarcomp<- bind_rows(jefes, direc, cp,tras)
+jerarcomp$jerar<- factor(jerarcomp$jerar,levels = c("Cuentapropia","Trabajadores\nAsalariados","Jefes","Dirección"))
+
+
+jerarcomp %>% ggplot(mapping = aes(x=jerar, y=porcentaje, fill=Sexo, label=porcentaje)) + geom_col(width = 0.7, show.legend = F) + geom_text(position = position_stack(vjust=0.5), size=3, show.legend = F, family="Open Sans")+ coord_flip() + scale_fill_manual(values = colores) + labs(title = "Ocupación s/ jerarquia de <span style = 'color: #29aee4;'>**Hombres**</span> y <span style='color: #0c8136;'>**Mujeres**</span>", subtitle = "Tercer trimestre 2020", caption = "", fill="") + xlab("") + ylab("%") + theme(title = element_text( size=10), text = element_text(size=9, family = "Open Sans") , panel.background = element_blank(),  axis.ticks = element_blank(), aspect.ratio = 1/6, plot.title = element_markdown(), plot.title.position = "plot", axis.text = element_text(color = "BLACK"), plot.background = element_rect(fill="WHITE")) 
+#ggsave("ocupacionsjerar.svg")
+```
+
+
+## Distribución de jerarquias
+```{r}
+jerarq <- eph3t %>% filter(AGLOMERADO==12 & !is.na(JERARQUIA)) %>%  group_by(JERARQUIA) %>% mutate(jerar=sum(PONDERA)) %>% ungroup()
+
+jerarq <- jerarq %>% group_by(JERARQUIA, Sexo) %>% summarise(porcentaje=percent((sum(PONDERA)/jerar),2)) %>% unique()
+jerarq
+```
+## Tasa de actividad económica y el trabajo de amas/os de casa (aclarar, que a diferencia del INDEC, de la población de referencia se excluyen las personas con encuesta individual no realizada) (grafico en infografia)
+
+```{r}
+###Tasa de actividad
+###Mujeres 
+actividadm <- eph3t %>% filter(AGLOMERADO==12 & Sexo=="Mujeres" & ESTADO!=0)
+actividadm <- actividadm %>% group_by(activo=PEA) %>% summarise("Tasa de actividad"=sum(PONDERA) / sum(actividadm$PONDERA), clase="Mujeres")
+actividadm #1=0.30
+
+###Hombres
+actividadh <- eph3t %>% filter(AGLOMERADO==12 & Sexo=="Hombres" & ESTADO!=0)
+actividadh <- actividadh %>% group_by(activo=PEA) %>% summarise("Tasa de actividad"=sum(PONDERA) / sum(actividadh$PONDERA), clase="Hombres")
+actividadh #0.41
+##Total
+actividad <- eph3t %>% filter(AGLOMERADO==12)
+actividad<- actividad %>% group_by(activo=PEA)  %>% summarise("Tasa de actividad"=sum(PONDERA)/sum(actividad$PONDERA), clase="Total")
+actividad
+
+###Incluyendo amas/os de casa###
+eph3t <- eph3t %>% mutate(ACTIV = case_when(ESTADO==3 & CAT_INAC==4 ~ 1,
+                                            ESTADO==3 & CAT_INAC %in% c(1,2,3, 5, 6, 7) ~ 0,
+                                            ESTADO==4 ~ 0,
+                                            ESTADO==1 ~ 1,
+                                            ESTADO==2 ~ 1) )
+
+table(eph3t$PEA) #ACTIVOS=14366
+table(eph3t$CAT_INAC) #amas de casa=3519
+table(eph3t$ACTIV) #ACTIVOS=17885
+
+###Tasa de actividad
+###Mujeres 
+actividmsd <- eph3t %>% filter(AGLOMERADO==12 & Sexo=="Mujeres" & ESTADO!=0)
+actividmsd <- actividmsd %>% group_by(activo=ACTIV) %>% summarise("Tasa de actividad"=sum(PONDERA) / sum(actividmsd$PONDERA), clase="Mujeres incluyendo\nServicio Doméstico")
+actividmsd #1= 0.46
+
+###Hombres
+actividhsd <- eph3t %>% filter(AGLOMERADO==12 & Sexo=="Hombres" & ESTADO!=0)
+actividhsd <- actividhsd %>% group_by(activo=ACTIV) %>% summarise("Tasa de actividad"=sum(PONDERA) / sum(actividhsd$PONDERA),clase="Hombres incluyendo\nServicio Doméstico")
+actividhsd #0.49
+
+tasaactividad<-bind_rows(actividadh,actividadm, actividhsd,actividmsd)
+tasaactividad<- tasaactividad %>% filter(activo==1)
+```
+
+## Gráfico de tasa de actividad
+```{r}
+tasaactividad$clase<- factor(tasaactividad$clase, levels = c("Hombres", "Mujeres", "Hombres incluyendo\nServicio Doméstico","Mujeres incluyendo\nServicio Doméstico"))
+ggplot(tasaactividad, aes(fill = clase, ymax = `Tasa de actividad`, ymin = 0, xmax = 2, xmin = 1)) +
+ geom_rect(aes(ymax=1, ymin=0, xmax=2, xmin=1), fill ="LIGHT GRAY") +
+ geom_rect() + 
+ coord_polar(theta = "y",start=-pi/2) + xlim(c(0, 2)) + ylim(c(0,2)) +
+ geom_text(aes(x = 0, y = 0, label = percent(`Tasa de actividad`,2)), size=5, family="Open Sans") +
+ geom_text(aes(x=1.5, y=1.5, label= clase), size=3.5, family="Open Sans") + 
+ facet_wrap(~clase, ncol = 4) +
+  labs(title = "Tasa de actividad por sexo", subtitle = "Tercer trimestre 2020", caption = "Fuente: EPH-INDEC", fill="")+
+ theme_void() +
+ scale_fill_manual(values = colores) +
+ scale_colour_manual(values =colores) +
+ theme(strip.background = element_blank(),
+ strip.text.x = element_blank(), plot.title.position = "plot", text=element_text(family="Open Sans")) +
+ guides(fill=FALSE) +
+ guides(colour=FALSE)
+
+#ggsave("tasaactividad2.svg", height =6, width = 8,units = "cm")
+
+```
+
+## Hogares con Jefe de Hogar mujer (revisar el tema de los rangos de edad)
+
+```{r}
+jefesdh <- eph3t %>% filter(AGLOMERADO==12 & JEFE==1 & CH06<=54 & CH06>=16)
+jefesdh <- jefesdh %>% group_by(Sexo) %>% summarise(porcentaje=formattable::percent((sum(PONDERA) / sum(jefesdh$PONDERA)),2))
+jefesdh
+
+
+#Hogar mono/bi parental
+#Lo que tengo que hacer es ver el porcentaje de hogares con Jefatura de Hogar femenina 
+#dependiendo del tipo de hogar. Crear variable para tipo de hogar y ver por Sexo. 
+#“Hogar Monoparental”: hogar sin cónyuge presente; 
+#“Hogar Biparental”: hogar con jefe y cónyuge presentes; 
+#“Hogar Unipersonal”: hogar compuesto por un jefe de hogar, que no esta casasdo/unido y no tiene hijos.
+
+
+eph3t <- eph3t %>% group_by(AGLOMERADO,CODUSU, NRO_HOGAR) %>% mutate(hijosxhogar=sum(HIJO)) %>% ungroup()
+
+#Biparental con hijos
+jefbiparental <- eph3t %>% filter(AGLOMERADO==12 & CH03==1 & CH07%in% c(1,2)  & hijosxhogar>=1 & CH06<=54 & CH06>=16)
+jefbiparental <- jefbiparental %>% group_by(Sexo) %>% summarise(porcentaje=formattable::percent((sum(PONDERA)/sum(jefbiparental$PONDERA)),2), clase="Biparental\ncon hijos")
+jefbiparental
+
+#Biparental sin hijos
+jefbiparentalsh <- eph3t %>% filter(AGLOMERADO==12 & CH03==1 & CH07%in% c(1,2)  & hijosxhogar==0 & CH06<=54 & CH06>=16)
+jefbiparentalsh <- jefbiparentalsh %>% group_by(Sexo) %>% summarise(porcentaje=formattable::percent((sum(PONDERA)/sum(jefbiparentalsh$PONDERA)),2), clase="Biparental\nsin hijos")
+jefbiparentalsh
+
+#Monoparental UNA LOCURA!!!!
+jefmonoparental <- eph3t %>% filter(AGLOMERADO==12 & CH03==1 & CH07%in% c(3,4,5)  & hijosxhogar>=1 & CH06<=54 & CH06>=16)
+jefmonoparental <- jefmonoparental %>% group_by(Sexo) %>% summarise(porcentaje=formattable::percent((sum(PONDERA)/sum(jefmonoparental$PONDERA)),2), clase="Monoparental")
+jefmonoparental
+
+#Otros
+jefunipersonal <- eph3t %>% filter(AGLOMERADO==12 & CH03==1 & CH07%in% c(3,4,5) & hijosxhogar==0 &  CH06<=54 & CH06>=16)
+jefunipersonal <- jefunipersonal %>% group_by(Sexo) %>% summarise(porcentaje=formattable::percent((sum(PONDERA)/sum(jefunipersonal$PONDERA)),2), clase="Otros")
+jefunipersonal
+
+jefaturaxclase<- bind_rows(jefbiparental,jefbiparentalsh,jefmonoparental,jefunipersonal)
+jefaturaxclase$porcentaje<- as.numeric(jefaturaxclase$porcentaje)
+```
+### Gráfico tipo de hogares y jefatura por sexo
+```{r}
+jefaturaxclase %>% ggplot(mapping=aes(x=clase, y=porcentaje, fill=Sexo, label=formattable::percent(porcentaje,1))) + geom_col(position = "fill", width = 0.60, show.legend = F) +
+  geom_text(position = position_stack(vjust=0.5), size=3, show.legend = F) + scale_fill_manual(values = colores) + labs(title = "Jefatura de hogar de <span style = 'color: #29aee4;'>**Hombres**</span> y <span style='color: #0c8136;'>**Mujeres**</span> por tipo de hogar", subtitle = "Tercer trimestre 2020", caption = "", fill="") + xlab("") + ylab("%") + theme(title = element_text( size=10),  legend.position = "right" , legend.text = element_text(size=8), text = element_text(family="Open Sans",size=9) , panel.background = element_blank(),  axis.ticks = element_blank(), aspect.ratio = 1.16  , axis.text = element_text(color="BLACK"), plot.title = element_markdown(), plot.title.position = "plot") 
+
+
+
+```
+
+## Distribución de las modalidades de jefatura femenina (REVISION, vemos si aporta...)
+
+```{r}
+eph3t <- eph3t %>% mutate(jfemenina = case_when(CH03==1 & CH07%in% c(3,4,5)  & hijosxhogar>=1 & CH04==2 ~ "hmonoparental", 
+                                                CH03==1 & CH07%in% c(1,2)  & hijosxhogar>=1 & CH04==2 ~"hbiparentalch",
+                                                CH03==1 & CH07%in% c(1,2)  & hijosxhogar==0 & CH04==2 ~ "hbiparentalsh",
+                                                CH03==1 & CH07%in% c(3,4,5) & hijosxhogar==0 & CH04==2 ~ "hunipersonal"))
+
+
+jefaturafem <- eph3t %>% filter(AGLOMERADO==12 & !is.na(jfemenina) & CH06<=54 & CH06>=16)
+jefaturafem <- jefaturafem %>% group_by(jfemenina) %>%  summarise(porcentaje=formattable::percent((sum(PONDERA)/sum(jefaturafem$PONDERA)),2))
+jefaturafem
+
+
+```
+## Jefatura de hogar femenina y jefatura económica femenina en hogares biparentales
+
+```{r}
+#jefatura económica: la mujer contribuye con más del 50% del ingreso laboral familiar total (tomando en cuenta solamente los aportes de los cónyuges).
+
+hogbiparental <- eph3t %>% filter(AGLOMERADO==12 & CH03%in% c(1,2) & CH07 %in%  c(1,2) & CH06<=54 & CH06>=16 & P21!=-9)  
+
+
+hogbiparental <- hogbiparental %>% group_by(AGLOMERADO,CODUSU, NRO_HOGAR) %>% mutate(ingresofam=sum(P21)) %>% ungroup()
+
+#view(hogbiparental$ingresofam)
+#table(hogbiparental$CH03)
+
+hogbiparental <- hogbiparental %>% mutate(particip = P21 / ingresofam)
+
+jefatura <-hogbiparental %>% filter(!is.na(particip))
+jefatura <- jefatura %>% mutate(jefaturaeco = case_when(particip>=0.5 ~1,
+                                                                 particip<0.5 ~0),
+                                         jefehogar = case_when(CH03==1 ~ 1, 
+                                                               TRUE ~0))
+jefatura<- jefatura %>% mutate(matrizjefa=case_when(jefaturaeco==1 & jefehogar==1 ~ "Jefe de Hogar y Jefe económico",
+                                                    jefaturaeco==1 & jefehogar==0 ~ "Jefe económico y NO Jefe de Hogar",
+                                                    jefaturaeco==0 & jefehogar==1 ~ "Jefe de Hogar y NO Jefe económico",
+                                                    jefaturaeco==0 & jefehogar==0 ~ "Ni Jefe económico Ni Jefe de hogar"))
+
+jefaturaecon <- jefatura %>% filter(jefaturaeco==1)
+jefaturaecon <- jefaturaecon %>% group_by(Sexo) %>% summarise(porcentaje=formattable::percent((sum(PONDERA)/sum(jefaturaecon$PONDERA)),2))
+jefaturaecon
+
+jefaturahogar <- jefatura %>% filter(jefehogar==1)
+jefaturahogar <- jefaturahogar %>% group_by(Sexo) %>% summarise(porcentaje=formattable::percent((sum(PONDERA)/sum(jefaturahogar$PONDERA)),2))
+jefaturahogar
+
+matrizjefaH <- jefatura %>% filter(Sexo=="Hombres")
+
+matrizjefaH <- matrizjefaH %>% group_by(matrizjefa) %>% summarise(Hombres=formattable::percent((sum(PONDERA)/sum(matrizjefaH$PONDERA)),2))
+matrizjefaH
+
+matrizjefaM <- jefatura %>% filter(Sexo=="Mujeres")
+
+matrizjefaM <- matrizjefaM %>% group_by(matrizjefa) %>% summarise(Mujeres=formattable::percent((sum(PONDERA)/sum(matrizjefaM$PONDERA)),2))
+matrizjefaM
+
+
+matrizdef<- left_join(matrizjefaH,matrizjefaM)
+matrizdef
+
+
+```
+## Gráfico de matriz
+```{r}
+loadfonts(device="win", quiet = T)
+ggplot(matrizjefaM, aes(fill = matrizjefa, ymax = Mujeres, ymin = 0, xmax = 2, xmin = 1)) +
+ geom_rect(aes(ymax=1, ymin=0, xmax=2, xmin=1), fill =gradiente[1] , color="BLACK") +
+ geom_rect(aes(ymax=0.5, ymin=0, xmax=1.5, xmin=1), fill =gradiente[2], color="BLACK") +
+  geom_rect(aes(ymax=1, ymin=0.5, xmax=2, xmin=1.5), fill=gradiente[4], color="BLACK") +
+   geom_rect(aes(ymax=1, ymin=0.5, xmax=1.5, xmin=1), fill=gradiente[3], color="BLACK") +
+  geom_richtext(aes(x=1.25, y=0.75), family="Open Sans", size=5, label.color=NA, fill=NA, label=matrizjefaM %>% filter(matrizjefa=="Jefe de Hogar y Jefe económico") %>% pull()) +
+  geom_richtext(aes(x=1.75, y=0.75),  family="Open Sans",size=5,label.color=NA, fill=NA, label=matrizjefaM %>% filter(matrizjefa=="Jefe de Hogar y NO Jefe económico") %>% pull()) +
+  geom_richtext(aes(x=1.25, y=0.25),family="Open Sans", size=5,label.color=NA, fill=NA, label=matrizjefaM %>% filter(matrizjefa=="Jefe económico y NO Jefe de Hogar") %>% pull()) +
+  geom_richtext(aes(x=1.75, y=0.25), family="Open Sans", size=5,label.color=NA, fill=NA, label=matrizjefaM %>% filter(matrizjefa=="Ni Jefe económico Ni Jefe de hogar") %>% pull()) +
+  annotate("text",x=0.90, y =0.75, label= "Jefe de\nHogar", family="Open Sans") +
+    annotate("text",x=0.90, y =0.25, label= "NO Jefe\nde Hogar", family="Open Sans") + 
+        annotate("text",x=1.25, y =1.10, label= "Jefe\neconómico", family="Open Sans") +
+           annotate("text",x=1.75, y =1.10, label= "NO Jefe\neconómico", family="Open Sans") +
+  xlab("") + ylab("" )+
+  labs(title = "Jefatura de hogar y jefatura económica de las mujeres", subtitle = "Tercer trimestre 2020", caption = "", fill="")+
+  theme(panel.background = element_blank(),axis.text = element_blank(), axis.ticks=element_blank(), plot.title.position = "plot", title = element_text(face="bold"),text = element_text(family = "Open Sans")) + xlim(c(.8,2.3))
+
+
+#ggsave("plot1.svg")
+
+```
+
+## Composición por quintiles del ingreso laboral P21
+
+```{r}
+
+quintil<- eph3t %>% filter(AGLOMERADO==12 & P21!=-9 & ESTADO==1 & PP3E_TOT>0) %>% mutate(ingxhor=P21/(PP3E_TOT*4))  %>% mutate(quintil=as.numeric(cut(ingxhor,wtd.quantile(ingxhor,weights = PONDIIO, probs = seq(0,1,length=6), na.rm = T),include.lowest = T)))
+
+table(quintil$quintil)
+
+#Primer quintil
+quintil1 <- quintil %>% filter(quintil==1)
+quintil1 <- quintil1 %>% group_by(Sexo) %>% summarise(porcentaje=sum(PONDIIO)/sum(quintil1$PONDIIO), quintil=1)
+quintil1
+
+#Segundo quintil
+
+quintil2 <- quintil %>% filter(quintil==2)
+quintil2 <- quintil2 %>% group_by(Sexo) %>% summarise(porcentaje=sum(PONDIIO)/sum(quintil2$PONDIIO), quintil=2)
+quintil2
+
+#Tercer quintil
+quintil3 <- quintil %>% filter(quintil==3)
+quintil3 <- quintil3 %>% group_by(Sexo) %>% summarise(porcentaje=sum(PONDIIO)/sum(quintil3$PONDIIO), quintil=3)
+quintil3
+
+#Cuarto quintil
+quintil4 <- quintil %>% filter(quintil==4)
+quintil4 <- quintil4 %>% group_by(Sexo) %>% summarise(porcentaje=sum(PONDIIO)/sum(quintil4$PONDIIO), quintil=4)
+quintil4
+
+#Quinto quintil
+quintil5 <- quintil %>% filter(quintil==5)
+quintil5 <- quintil5 %>% group_by(Sexo) %>% summarise(porcentaje=sum(PONDIIO)/sum(quintil5$PONDIIO), quintil=5)
+quintil5
+
+quintilestot<- bind_rows(quintil1,quintil2, quintil3, quintil4,quintil5)
+quintilestot<- quintilestot %>% mutate(cantidad=round(porcentaje*100,0))
+quintilestot
+```
+## Gráfico de quintiles y composicion
+```{r}
+quintilestot %>% ggplot(mapping=aes(fill=Sexo,values = cantidad)) + geom_waffle(size=.20, n_rows = 5,flip=TRUE, show.legend = F) + facet_wrap(~quintil, nrow=1, strip.position = "bottom") + labs(fill="", title = "Composición por quintiles de <span style = 'color: #29aee4;'>**Hombres**</span> y <span style='color: #0c8136;'>**Mujeres**</span>", subtitle = "Segundo trimestre 2020", caption = "Fuente: EPH-INDEC")+ theme_minimal(base_family = "Open Sans") + xlab("quintiles") + scale_fill_manual(values = colores)  +
+  theme(panel.grid = element_blank(), axis.ticks.y = element_blank(), axis.text.y = element_blank(), axis.text.x = element_blank(), plot.title = element_markdown(), plot.title.position = "plot", axis.title = element_blank()) 
+```
+
+
+## Condiciones laborales de las trabajadoras del servicio domestico (Va a ser un dato nomas, sin grafico)
+
+```{r}
+#Trabajadoras del servicio domestico:5446
+serviciodom <- eph3t %>% filter (AGLOMERADO==12 & PP04B1==1 & Sexo=="Mujeres")
+
+#Condiciones laborales
+#Vacaciones pagas
+serviciodom %>%  group_by(Vacaciones) %>% summarise((sum(PONDERA)/sum(serviciodom$PONDERA)), sum(PONDERA))
+
+#Percibe aguinaldo?
+serviciodom %>% group_by(Aguinaldo) %>% summarise((sum(PONDERA)/sum(serviciodom$PONDERA)), sum(PONDERA))
+
+#Posee dias pagos por enfermedad?
+serviciodom %>% group_by(Diasporenfermedad) %>% summarise((sum(PONDERA)/sum(serviciodom$PONDERA)), sum(PONDERA))
+
+#Obra social 
+serviciodom %>% group_by(Obrasocial) %>% summarise((sum(PONDERA)/sum(serviciodom$PONDERA)), sum(PONDERA))
+
+#Descuento jubilatorio
+serviciodom %>% group_by(Descuentojubilatorio) %>% summarise((sum(PONDERA)/sum(serviciodom$PONDERA)), sum(PONDERA))
+```
+
+
+
+
+# Ingreso promedio según categoría ocupacional y participación laboral de hombres y mujeres y tasa de feminización.
+
+```{r}
+tabla1<- eph3t %>% filter(AGLOMERADO==12 & P21!=-9 & P21!=0 & ESTADO==1) %>%  group_by(SECTOR_ACTG) %>% summarise(total=sum(PONDERA), "Ingreso promedio"=weighted.mean(P21,PONDIIO), "Total Mujeres"=sum(PONDERA[Sexo=="Mujeres"]), "Total de Hombres"=sum(PONDERA[Sexo=="Hombres"]), "Ingreso promedio Mujeres"=case_when(!is.na(weighted.mean(P21[Sexo=="Mujeres"],PONDIIO[Sexo=="Mujeres"]))~weighted.mean(P21[Sexo=="Mujeres"],PONDIIO[Sexo=="Mujeres"]),is.na(weighted.mean(P21[Sexo=="Mujeres"],PONDIIO[Sexo=="Mujeres"]))~0), "Ingreso promedio Hombres"=case_when(!is.na(weighted.mean(P21[Sexo=="Hombres"],PONDIIO[Sexo=="Hombres"]))~weighted.mean(P21[Sexo=="Hombres"],PONDIIO[Sexo=="Hombres"]),is.na(weighted.mean(P21[Sexo=="Hombres"],PONDIIO[Sexo=="Hombres"]))~0))
+
+tabla1<- tabla1 %>% mutate("Brecha de ingreso"=percent((`Ingreso promedio Hombres`-`Ingreso promedio Mujeres`)/`Ingreso promedio Hombres`), "Tasa de feminización"=percent(`Total Mujeres`/(`Total Mujeres`+`Total de Hombres`)))
+
+tabla1 <- tabla1 %>% filter(!is.na(SECTOR_ACTG)) %>% arrange(`Tasa de feminización`)
+tabla1
+
+
+```
+
+### Ingreso Promedio por hora y tasa de feminzación
+
+```{r}
+tabla1<- eph3t %>% filter(AGLOMERADO==12 & P21!=-9 & P21!=0 & HORASSEM!=0) %>% mutate(inxhor=((P21)/(PP3E_TOT*4))) %>%   group_by(SECTOR_ACTG) %>% summarise(total=sum(PONDERA), "Ingreso promedio"=weighted.mean(inxhor,PONDIIO), "Total Mujeres"=sum(PONDERA[Sexo=="Mujeres"]), "Total de Hombres"=sum(PONDERA[Sexo=="Hombres"]), "Ingreso promedio Mujeres"=case_when(!is.na(weighted.mean(inxhor[Sexo=="Mujeres"],PONDIIO[Sexo=="Mujeres"]))~weighted.mean(inxhor[Sexo=="Mujeres"],PONDIIO[Sexo=="Mujeres"]),is.na(weighted.mean(inxhor[Sexo=="Mujeres"],PONDIIO[Sexo=="Mujeres"]))~0), "Ingreso promedio Hombres"=case_when(!is.na(weighted.mean(inxhor[Sexo=="Hombres"],PONDIIO[Sexo=="Hombres"]))~weighted.mean(inxhor[Sexo=="Hombres"],PONDIIO[Sexo=="Hombres"]),is.na(weighted.mean(inxhor[Sexo=="Hombres"],PONDIIO[Sexo=="Hombres"]))~0))
+
+tabla1<- tabla1 %>% mutate("Brecha de ingreso"=formattable::percent((`Ingreso promedio Hombres`-`Ingreso promedio Mujeres`)/`Ingreso promedio Hombres`), "Tasa de feminización"=formattable::percent(`Total Mujeres`/(`Total Mujeres`+`Total de Hombres`)))
+
+tabla1
+
+```
+
+
+
+
+
+```{r}
+tabla1 %>% filter(!is.na(SECTOR_ACTG)) %>% ggplot(mapping=aes(x= `Tasa de feminización`, y=`Ingreso promedio`, label=SECTOR_ACTG)) + geom_point(aes(size=total, colour=`Tasa de feminización`),alpha=0.7, show.legend = F) +scale_color_gradient(low=colores[1], high=colores[3])+  geom_hline(linetype="dotted",yintercept=(median(tabla1$`Ingreso promedio`))) + geom_vline(linetype="dotted",xintercept =median(tabla1$`Tasa de feminización`)) + ggrepel::geom_text_repel(size=2) +labs(fill="", title = "Tasa de feminización e ingreso por hora promedio por sector de actividad", subtitle = "Tercer trimestre 2020", caption = "Fuente: EPH-INDEC")+  theme(text=element_text(family="Open Sans"),panel.grid = element_blank(),  axis.title = element_text(), axis.line = element_line(), plot.title.position = "plot", axis.text = element_text(family = "Open Sans", color="BLACK"), panel.background = element_blank())
+
+
+
+```
+
+
+
+## Diferencia entre horas trabajadas de mujeres y hombres por quintil de ingreso
+```{r}
+tabla2<-eph3t %>% filter(AGLOMERADO==12 & ESTADO==1) %>%  mutate(quintil=as.numeric(cut(IPCF,wtd.quantile(IPCF,weights = PONDIH, seq(0,1,length=6),na.rm = T),include.lowest = T)))
+  
+tabla2b<- tabla2 %>% filter(!is.na(HORASSEM)) %>%  group_by(quintil, Sexo) %>% summarise("Horas trabajadas en promedio"=weighted.mean(HORASSEM,weights = PONDERA), sum(PONDERA), ds=sqrt(var(HORASSEM)))
+tabla2<- tabla2 %>% filter(!is.na(HORASSEM)) %>%  group_by(quintil, Sexo) %>% summarise("Horas trabajadas en promedio"=weighted.mean(HORASSEM,weights = PONDERA))
+  
+tabla2<- tabla2 %>% pivot_wider(names_from = Sexo,values_from=`Horas trabajadas en promedio`) %>% mutate(Brecha=(Hombres-Mujeres)*5)
+brecha<- tabla2 %>% select(quintil, Brecha) 
+
+grafico2<- tabla2 %>% select(-Brecha) %>%  pivot_longer(-quintil)
+grafico2 <- left_join(grafico2, brecha)
+grafico2 %>% ggplot(mapping=aes(x=quintil, y=value, fill=name))+ 
+geom_col(position = "dodge", show.legend = F) + geom_point(aes(x=quintil, y=Brecha),show.legend = F , shape=15 ) + scale_y_continuous("Horas trabajadas en Promedio", sec.axis = sec_axis(~./5, name = "Brecha",breaks = c(seq(0,15, by=2))))  + labs(fill="", title = "Horas trabajadas en promedio de <span style = 'color: #29aee4;'>**Hombres**</span> y <span style='color: #0c8136;'>**Mujeres**</span> por quintil de IPCF", subtitle = "Tercer trimestre 2020", caption = "")+ xlab("Quintil IPCF") + theme(text=element_text(family="Open Sans"),axis.title = element_text(), legend.position = "bottom", panel.grid.major = element_blank(), plot.title = element_markdown(), plot.title.position = "plot", panel.background = element_blank(), axis.text = element_text(colour = "BLACK", family="Open Sans"), aspect.ratio = 0.5) + scale_fill_manual(values=colores) + geom_hline(aes(yintercept=0), color="BLACK", size=0.5, alpha=1)
+
+ggsave("horastrabxquintil.svg")
+```
+## Brecha de participación laboral y de participación por horas con respecto al nivel educativo.
+```{r}
+tabla3<- eph3t %>% filter(AGLOMERADO==12) %>% filter(ESTADO==1) %>% group_by(niveled,Sexo) %>% summarise(Ocupados=sum(PONDERA), horas=weighted.mean(HORASSEM, PONDERA))
+tabla3<- tabla3 %>% pivot_wider(names_from = Sexo, values_from=c(Ocupados,horas ))
+tabla3<- tabla3 %>% mutate("Brecha ocupación"=formattable::percent((Ocupados_Hombres- Ocupados_Mujeres)/Ocupados_Hombres,digits = 2), "Brecha horaria"=formattable::percent((horas_Hombres- horas_Mujeres)/ horas_Hombres, digits = 2))
+tabla3 <- tabla3 %>% select(niveled,`Brecha ocupación`,`Brecha horaria`)
+grafico3<- tabla3 %>% pivot_longer(-niveled)
+
+
+grafico3
+grafico3 %>% ggplot(mapping=aes(x=niveled, y=value, fill=name, label=value)) + geom_col(position = "dodge", show.legend = F) + geom_text(position = position_dodge(width = 1), size=3 , vjust=1.5) + labs(fill="", title ="Brecha <span style='color: #29aee4;'>**Horaria**</span> y <span style='color: #0c8136;'>**Ocupacional** </span> por nivel educativo", subtitle = "Tercer trimestre 2020", caption = "")+ xlab("") + ylab("%")  + theme(text=element_text(family="Open Sans", colour = "BLACK"),axis.title = element_text(), legend.position = "bottom", axis.text = element_text(color = "BLACK", family="Open Sans"), panel.background = element_blank(), plot.title = element_markdown(), plot.title.position = "plot", aspect.ratio = 0.6)  + scale_fill_manual(values=colores)  
+ggsave("brechahorayocupxnivel.svg")
+#para bajar las etiquetas+ scale_x_discrete(guide = guide_axis(n.dodge = 2))
+
+
+```
+
+## Tasa de fecunidad por quintil y nivel educativo
+
+```{r}
+porquintil<-eph3t %>% filter(AGLOMERADO==12) %>%  mutate(quintil=as.numeric(cut(IPCF,wtd.quantile(IPCF,weights = PONDIH, seq(0,1,length=6),na.rm = T),include.lowest = T)))
+
+porquintil<- porquintil %>%  group_by(CODUSU,NRO_HOGAR, AGLOMERADO) %>%  mutate(hijosxhog=sum(PONDERA[CH03==3 & CH06<=16])) %>% ungroup()
+porquintil<- porquintil  %>% filter(Sexo=="Mujeres" & CH03 %in% c(1,2))
+porquintil<- porquintil %>% filter(CH06>=18 & CH06<=50)
+grafico4<- porquintil %>% group_by(quintil) %>% summarise(sum(hijosxhog)/sum(PONDERA))
+grafico4<- grafico4 %>% rename("Hijos por mujer"=`sum(hijosxhog)/sum(PONDERA)`)
+
+grafico4 %>% ggplot(mapping=aes(x=quintil, y=`Hijos por mujer`)) + geom_segment(aes(x=quintil, xend=quintil, y=0, yend=`Hijos por mujer`), size=1.5, color=colores[1]) + geom_point( color=colores[2], size=3, alpha=1, stroke=2)+ labs(fill="", title ="Cantidad de hijos por Mujer por quintil de IPCF", subtitle = "Segundo trimestre 2020", caption = "Fuente: EPH-INDEC")+ xlab("Quintiles IPCF") + ylab("Cantidad de Hijos por Mujer") + theme(axis.title = element_text(),panel.background = element_blank(), plot.title.position = "plot" ,axis.text = element_text(color="BLACK"),  legend.position = "bottom", panel.grid.major.x = element_blank(),  title = element_text())  + coord_flip()
+
+
+porniveled<-eph3t %>% filter(AGLOMERADO==12) %>%   group_by(CODUSU,NRO_HOGAR, AGLOMERADO) %>%  mutate(hijosxhog=sum(PONDERA[CH03==3 & CH06<=16])) %>% ungroup()
+
+porniveled<-porniveled  %>% filter(Sexo=="Mujeres" & CH03 %in% c(1,2))
+porniveled<- porniveled %>% filter(CH06>=18 & CH06<=50)
+porniveled %>% group_by(niveled) %>%  summarise(sum(hijosxhog)/sum(PONDERA))
+
+grafico5 <- porniveled %>%  group_by(niveled) %>%  summarise(sum(hijosxhog)/sum(PONDERA))
+grafico5 <- grafico5 %>% rename("Hijos por mujer"=`sum(hijosxhog)/sum(PONDERA)`, "Nivel educativo"=niveled)
+
+grafico5 %>% ggplot(mapping=aes(x=`Nivel educativo`, y=`Hijos por mujer`)) + geom_segment(aes(x=`Nivel educativo`, xend=`Nivel educativo`, y=0, yend=`Hijos por mujer`), size=1.5, color=colores[2]) + geom_point(color=colores[1], size=5, alpha=1)  + labs(fill="", title ="Cantidad de hijos por Mujer por nivel educativo", subtitle = "Segundo trimestre 2020", caption = "Fuente: EPH-INDEC")+ xlab("") + ylab("Cantidad de Hijos por Mujer") + theme(axis.title = element_text(), legend.position = "bottom", panel.grid.major.x = element_blank(), plot.title.position = "plot", panel.background = element_blank(), axis.text = element_text(color = "BLACK"))  + coord_flip()
+
+```
+## Años de educación por Sexo
+```{r}
+anoseduc<- eph3t %>% filter(AGLOMERADO==12 & CH06>=18 & !is.na(aeduc)) 
+anoseducarg<- eph3t %>% filter(REGION==41 & CH06>=18 & !is.na(aeduc))
+
+anoseducexp<- splitstackshape::expandRows(dataset = anoseduc,count = "PONDERA")
+sum(anoseducexp$PONDERA)
+
+tabla4<- anoseduc %>% filter(!is.na(aeduc) & CH06>=18) %>% group_by(Sexo) %>% summarise("Años de educación promedio"=weighted.mean(aeduc, PONDERA))
+tabla4
+
+anoseducexp %>% select(Sexo,aeduc) %>%  split(.$Sexo) %>% map(summary)
+
+anoseducexp  %>% ggplot(mapping=aes(x=Sexo, y=aeduc, fill=Sexo)) + geom_violin(show.legend = F) + geom_boxplot(width=0.05,show.legend = F)  + labs(fill="", title ="Distribución de años de educación de <span style = 'color: #29aee4;'>**Hombres**</span> y <span style='color: #0c8136;'>**Mujeres**</span>", subtitle = "Segundo trimestre 2020", caption = "Fuente: EPH-INDEC")+ xlab("") + ylab("Años de educación promedio") + theme(axis.title = element_text(), legend.position = "bottom", panel.grid.major.x = element_blank(),plot.title = element_markdown()  ,text=element_text(family="Open Sans"), plot.title.position = "plot", panel.background = element_blank()) + scale_fill_manual(values = colores)
+
+ggsave("añoseduprom.svg", width =unit(14,"cm"), height=unit(7, "cm"))
+
+tabla5<- anoseducarg %>% filter(!is.na(aeduc) & REGION==41 & CH06>=18) %>% group_by(AGLOMERADO2, Sexo) %>% summarise("Años de educación promedio"=weighted.mean(aeduc, PONDERA))
+
+
+
+tabla5 %>% ggplot(mapping = aes(x=Sexo, y =`Años de educación promedio`, fill=Sexo, label=round(`Años de educación promedio`,2))) + geom_col(position = "dodge", show.legend = F) +  facet_wrap(.~AGLOMERADO2, ncol = 4) + geom_text(vjust=1) + labs(fill="", title ="Años de educación promedio de <span style = 'color: #29aee4;'>**Hombres**</span> y <span style='color: #0c8136;'>**Mujeres**</span> en el NEA", subtitle = "Segundo trimestre 2020", caption = "Fuente: EPH-INDEC")+ xlab("") + ylab("Años de educación promedio") + theme(text =element_text(family="Open Sans"),plot.title = element_markdown() ,axis.title = element_text(), legend.position = "bottom", strip.background = element_rect(fill = "WHITE", colour = "WHITE"), strip.text = element_text(face="bold"), panel.background = element_blank(), plot.title.position="plot", panel.grid.major.x = element_blank(),  axis.text.x = element_blank()) + scale_fill_manual(values = colores) 
+
+
+tabla6 <- tabla5 %>% pivot_wider( names_from = Sexo, values_from= `Años de educación promedio`)
+tabla6 <- tabla6 %>% mutate(brecha=percent(((Hombres - Mujeres)/Hombres),0), brechag=((Hombres - Mujeres  )*5))
+
+
+#install.packages("sf")
+library(sf)
+library(ggplot2)
+library(tmap)
+library(leaflet)
+library(tidyverse)
+library(ggspatial)
+
+AGLOMERADOS2<- c(tabla6$AGLOMERADO2)
+lat<- c(-28.875445,-24.770868,-26.606927,-26.919922 )
+long<- c(-57.727019,-60.027494,-60.399952,  -54.572082 )
+
+
+coordenadas<- tibble(AGLOMERADO2=AGLOMERADOS2, lat=lat, long=long)
+
+unzip("provincia (2).zip")
+sf_provincias <- st_read('provincia.shp' )
+str(sf_provincias)
+NEA<- sf_provincias %>% filter(nam %in% c("Corrientes", "Misiones", "Formosa", "Chaco"))
+NEA<- NEA %>% mutate(AGLOMERADO2=case_when(nam=="Corrientes" ~ "Corrientes",
+                                           nam=="Chaco" ~ "Gran Resistencia",
+                                           nam=="Formosa" ~ "Formosa",
+                                           nam=="Misiones" ~ "Posadas"
+                                           ))
+NEAYDATA<- inner_join(NEA, tabla6)
+NEAYDATA<- inner_join(NEAYDATA, coordenadas)
+str(NEAYDATA)
+
+ scale_fill_gradient(low="#fde0dd", high ="#c51b8a")
+
+ggplot() + geom_sf(data=NEAYDATA, aes(fill=brecha), show.legend = T)  + geom_text(data = NEAYDATA, aes(x=long, y=lat, label=round(Mujeres,2)), color="BLACK", size=3.8, fontface="bold") + scale_fill_viridis_c(alpha = 0.85)  +  labs(title = "Años de educación promedio de las mujeres \n y brecha educacional en el NEA", subtitle = "Segundo trimestre 2020", caption = "Fuente: EPH-INDEC", fill="Brecha\nEducacional:" ) +   theme(text= element_text(family = "Open Sans"),panel.background = element_blank(), panel.grid = element_blank(), axis.title = element_blank(), legend.position = "right", axis.ticks = element_blank(), axis.text = element_blank(), plot.title.position = "plot") + annotation_scale(width_hint=0.2, location="br")
+
+
+```
+## Violencia Familiar
+
+```{r}
+violencia<- read_excel("VIOLENCIA.xlsx")
+#unicos<- violencia %>% summarise(unique(depen))
+#write.csv(unicos, file = "unicos.csv")
+violencia[,10:15][violencia[,10:15]=="Sí"] <- "1"
+violencia[,10:15][violencia[,10:15]=="No"] <- "0"
+
+unicos<- read.csv("unicos.csv", header = T, sep = ";")
+unicos<- unicos %>% rename(depen=unique.depen.)
+
+violencia<- left_join(violencia, unicos)
+violencia<- violencia %>% mutate(pondera=1) %>% 
+  mutate(franja=case_when( edad<18 ~ "Menor a 18\naños",
+                                     edad>=18 & edad<29 ~ "18 a 28\naños",
+                                     edad>=29 & edad<40 ~ "29 a 39\naños",
+                                     edad>=40 & edad<51 ~ "40 a 50\naños",
+                                     edad>=51 & edad<62 ~ "51 a 61\naños",
+                                     edad>=61 ~ "+61 años"),
+         franja=factor(franja, levels = c("Menor a 18\naños","18 a 28\naños","29 a 39\naños",
+                                          "40 a 50\naños","51 a 61\naños","+61 años")))
+
+unique(violencia$relacion)
+violencia$relacion<- str_replace(violencia$relacion, pattern = "cónyuge", replacement = "Cónyuge")
+unique(violencia$relacion)
+
+genero<-data.frame(unique(violencia$genero))
+genero[,2]<- c("femenino","masculino","femenino", "masculino","masculino", "femenino")
+genero<-  genero %>% rename(genero=unique.violencia.genero.,GENERO=V2)
+violencia<- left_join(violencia, genero)
+violencia<- violencia %>%  select(-c(genero,X))
+
+level<- c("ENERO", "FEBRERO","MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE")
+
+meses<-data.frame(mes=level, mes2=c("01","02","03","04","05","06","07","08","09"))
+level<- c("ENERO", "FEBRERO","MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE")
+
+violencia<-  left_join(violencia, meses)
+violencia<- violencia %>% mutate(dia="01")
+violencia <- violencia %>% mutate(fecha=str_c(año,mes2,dia, sep="-"))
+library(lubridate)
+violencia$fecha<- as_date(violencia$fecha)
+
+porfecha<- violencia %>% group_by(fecha) %>% summarise(sum(pondera))
+porfecha
+```
+
+
+```{r}
+#Lugar del hecho (Hacer per càpita)
+casospordep<-violencia %>% group_by(Departamento) %>% summarise(casos=sum(pondera))
+#Relacion de la victima con el agresor
+relacion2<- violencia %>% filter(GENERO=="femenino") %>% group_by(franja) %>% summarise(porcentaje=percent(sum(pondera)/sum(violencia$pondera),2))
+```
+
+
+```{r}
+#Meses del 2020
+mesesvio<- violencia %>% group_by(fecha) %>% summarise(casos=percent(sum(pondera)/sum(violencia$pondera)))
+mesesvio<- mesesvio %>% mutate(pandemia=case_when(fecha<"2020-03-01"~"Medidas de ASPO inactivas",
+                                                  fecha>="2020-03-01" & fecha<"2020-05-25" ~ "Medidas de ASPO elevadas",
+                                                  fecha>="2020-05-25" ~ "Medidas ASPO laxas"))
+
+relacion<- violencia %>% select(id,edad,relacion,fisica,verbal_psico,econo,sexual,restricion,ambiental,pondera,GENERO, franja,Departamento)
+relacion[,4:9]<- lapply(relacion[,4:9], as.numeric)
+relacion[,4:9][is.na(relacion[,4:9])]<- 0
+relacion<- relacion %>% mutate(
+  
+  cocubino=case_when(relacion=="Concubino"~1,
+  TRUE ~ 0),
+  
+  filial=case_when(
+  relacion=="Filial"~1,
+  TRUE ~ 0),
+  
+  expa=case_when(
+  relacion=="Ex Pareja"~1,
+  TRUE ~ 0),
+  
+  conyuge=case_when(
+  relacion=="Cónyuge"~1,
+  TRUE ~ 0),
+  
+  frat=case_when(
+  relacion=="Fraternal"~1,
+  TRUE ~ 0),
+  
+  otros=case_when(
+    relacion=="Otros" ~ 1,
+    TRUE ~0))
+  
+relacion<- relacion %>% filter(GENERO=="femenino")
+relaciones<- data.frame(relacion)
+relacionesctes<- relaciones %>% filter(Departamento=="Corrientes ")
+```
+
+
+
+
+
+
+# Casos de violencia en Corrientes Capital
+
+## Casos de violencia por franja etaria de la víctima:
+```{r}
+xfranjaetaria<-relacionesctes  %>% group_by(franja) %>% summarise(porcentaje=percent(sum(pondera)/sum(relacionesctes$pondera),2)) 
+xfranjaetaria
+```
+### Gráfico
+```{r}
+ggplot(xfranjaetaria, aes(fill = franja, ymax = porcentaje, ymin = 0, xmax = 2, xmin = 1)) +
+ geom_rect(aes(ymax=1, ymin=0, xmax=2, xmin=1), fill ="LIGHT GRAY") +
+ geom_rect() + 
+ coord_polar(theta = "y",start=-pi/2) + xlim(c(0, 2)) + ylim(c(0,2)) +
+ geom_text(aes(x = 0, y = 0, label = porcentaje), size=5, family="Open Sans") +
+ geom_text(aes(x=1.5, y=1.5, label= franja), size=3.5, family="Open Sans") + 
+ facet_wrap(~franja, ncol = 3) +
+  labs(title = "Casos de violencia por edad de la victima", subtitle = "Ene-2020 a Nov-2020", caption = "Fuente: Dirección de estadística del Poder Judicial", fill="")+
+ theme_void() +
+ scale_fill_manual(values = colores) +
+ scale_colour_manual(values =colores) +
+ theme(strip.background = element_blank(),
+ strip.text.x = element_blank(), plot.title.position = "plot", text=element_text(family="Open Sans")) +
+ guides(fill=FALSE) +
+ guides(colour=FALSE)
+```
+## Casos de violencia por la relacion  de la victima con el victimario:
+```{r}
+xrelacion<-relacionesctes  %>% group_by(relacion) %>% summarise(porcentaje=percent(sum(pondera)/sum(relacionesctes$pondera),2)) 
+
+ggplot(xrelacion, aes(area = porcentaje , label =paste(relacion, porcentaje,sep = " | "), fill=relacion)) +
+  geom_treemap(show.legend = F) + geom_treemap_text(show.legend = F,min.size = 2, family="Open Sans") + scale_fill_manual(values=colores)+ labs(title = "Casos de violencia por la relación del victimario con la victima", subtitle = "Ene-2020 a Nov-2020", caption = "Fuente: Dirección de estadística del Poder Judicial", fill="") +  theme(text = element_text(family = "Open Sans"), plot.background = element_blank()
+      ,panel.grid.major = element_blank()
+      ,panel.grid.minor = element_blank()
+      ,panel.border = element_blank()) 
+
+ 
+```
+
+
+## Casos de violencia por gravedad de las lesiones:
+```{r}
+xgravedad<- relacionesctes %>% select(id,fisica,verbal_psico,econo, sexual,restricion,ambiental) 
+xgravedad<- xgravedad %>% pivot_longer(-id)
+
+xgravedad<-xgravedad  %>% group_by(name) %>% summarise(porcentaje=percent(sum(value)/sum(xgravedad$value),2))
+xgravedad
+nuevosnombres<- tibble(name=xgravedad$name, nombre=c("Violencia ambiental", "Violencia Económica", "Violencia Física", "Violencia de Restricción", "Violencia Sexual", "Violencia Verbal-Psicológica"))
+xgravedad<- left_join(xgravedad,nuevosnombres)
+xgravedad <- data.frame(xgravedad)
+
+xgravedad<- xgravedad %>% arrange(porcentaje)
+xgravedad<- xgravedad %>%  mutate(nombre=factor(nombre, levels = xgravedad$nombre))
+
+xgravedad %>% ggplot(mapping=aes(x=nombre, y=porcentaje, label=porcentaje)) + geom_segment(aes(x=nombre, xend=nombre, y=0, yend=porcentaje), size=1.5, color="#428cb4") + geom_point(color="#ed3068", size=5, alpha=1)  +  labs(title = "Casos de violencia por tipo de violencia", subtitle = "Ene-2020 a Nov-2020", caption = "Fuente: Dirección de estadística del Poder Judicial", fill="")+ geom_richtext(label.color=NA, fill=NA, family="Open Sans", position = position_nudge(y=0.04)) + xlab("") + ylab("%") + theme(axis.text = element_text(color = "BLACK"), legend.position = "bottom", panel.grid.major.x = element_blank(), text=element_text(family="Open Sans"), panel.background = element_blank(), plot.title.position = "plot")  + coord_flip() + ylim(c(0,0.48))
+
+```
+
+
+```{r}
+library(sf)
+library(tmap)
+library(tmaptools)
+
+corrientes<- st_read("municipios_2010_geo.shp")
+deparmapacorr<- read.csv("nombremapacorr.csv", header = T, sep=";")
+corrientes<- full_join(corrientes, deparmapacorr)
+ 
+corrientes<- full_join(corrientes, casospordep)
+
+tmap_mode("plot")
+tm_shape(shp=corrientes) + tm_polygons("casos", palette="YlOrRd", border.col = "BLACK", border.alpha = 0.5,title="") +tm_layout(title="Denuncias por violencia de género", title.fontface = "bold", title.size = 0.9, title.position = c("center", "top"), frame = F, inner.margins = c(0.2,0.1,0.1,.1), fontfamily = "Open Sans", legend.outside = FALSE, legend.outside.position =  "top", legend.outside.size = 0.5) +
+   tm_compass(type = "8star", position = c("right", "bottom"),fontsize = 0.5) +
+  tm_scale_bar(breaks = c(0, 100, 200), text.size = 1)
+
+ggplot(data=corrientes) + geom_sf(aes(fill=casos) ) + scale_fill_viridis_c(alpha = 0.6,na.value = 0)  +  labs(title = "Casos denunciados de violencia de género", subtitle = "Enero a Octubre del 2020", caption = "Fuente: Dirección estadística Poder Judicial", fill="" ) +   theme(text= element_text(family = "Open Sans"),panel.background = element_blank(), panel.grid = element_blank(), axis.title = element_blank(), legend.position = "right", axis.ticks = element_blank(), axis.text = element_blank(), plot.title.position = "plot") 
+
+#ggsave("mapa casos corrientes.png")
+
+```
+
+
+
+# Autos, motocicletas e inmuebles per cápita por sexo
+```{r}
+padrondefgen<- read.csv("padronexportar.csv", header = T, sep=",")
+padrondefgen<- padrondefgen %>% mutate(pondera=1)
+porsex<- padrondefgen %>% group_by(GENERO) %>% summarise(sum(cantidadauto),sum(cantidadmotos),sum(cantidadinmuebles), sum(pondera))
+porsex<- porsex %>% mutate("Autos PC"=`sum(cantidadauto)`/`sum(pondera)`, "Motocicletas PC"=`sum(cantidadmotos)`/`sum(pondera)`, "Inmuebles PC"=`sum(cantidadinmuebles)`/`sum(pondera)`)
+porsex<- porsex %>% select(-c(`sum(cantidadauto)`,`sum(cantidadmotos)`,`sum(cantidadinmuebles)`,`sum(pondera)`))
+porsex<- porsex %>%  pivot_longer(-GENERO)
+
+porsex %>%  ggplot(mapping=aes(x=GENERO, y=value, fill=GENERO, label=round(value,2))) + geom_col(show.legend = F) + facet_grid(.~name) + geom_richtext(position = position_nudge(y=0.05), fill=NA, label.color=NA, family="Open Sans") + labs(fill="", title ="Patrimonio per cápita por tipo de activo y sexo", subtitle = "Padron de contribuyentes de la MCC", caption = "Fuente: Elaboración propia en base a Padron Contribuyentes")+ xlab("") + ylab("Patrimonio per cápita") + theme(text =element_text(family="Open Sans") ,axis.title = element_text(), legend.position = "bottom", strip.background = element_blank(), panel.background = element_blank(), panel.grid.major.x = element_blank(),  title = element_text(size = 10), panel.border = element_blank(), axis.ticks = element_blank(), axis.text = element_text(color="BLACK")) + scale_fill_manual(values = colores) 
+  
+
+```
+
+
+
+```{r}
+#Trabajo con la base etnr
+#Trabajo domestico no remunerado
+#18 a 28 años 
+trabdom <- eahutotal %>% filter(part_tdnr=="si" & edad=="18 a 28" & subdominio.x=="corrientes")
+trabdom %>% group_by(Sexo) %>% summarise(percent(sum(pondera.y)/sum(trabdom$pondera.y)))
+
+#29 A 39
+trabdom2 <- eahutotal %>% filter(part_tdnr=="si" & edad=="29 a 39" & subdominio.x=="corrientes")
+trabdom2 %>% group_by(Sexo) %>% summarise(percent(sum(pondera.y)/sum(trabdom2$pondera.y)))
+
+#40 a 50
+trabdom3 <- eahutotal %>% filter(part_tdnr=="si" & edad=="40 a 50" & subdominio.x=="corrientes")
+trabdom3 %>% group_by(Sexo) %>% summarise(percent(sum(pondera.y)/sum(trabdom3$pondera.y)))
+
+#51 a 61
+trabdom4 <- eahutotal %>% filter(part_tdnr=="si" & edad=="51 a 61" & subdominio.x=="corrientes")
+trabdom4 %>% group_by(Sexo) %>% summarise(percent(sum(pondera.y)/sum(trabdom4$pondera.y)))
+
+
+#+ de 61
+trabdom6 <- eahutotal %>% filter(part_tdnr=="si" & edad=="61+" & subdominio.x=="corrientes")
+trabdom6 %>% group_by(Sexo) %>% summarise(percent(sum(pondera.y)/sum(trabdom6$pondera.y)))
+
+
+```
+```{r}
+#Horas semanales de trabajo remunerado y no remunerado 
+#Horas semanas trabajo remunerado
+horastrabremu <- eahutotal %>% filter(estado=="Ocupado" & subdominio.x=="corrientes" & p21>0)
+horastrabremu %>% group_by(Sexo) %>% summarise(mean(horassemanalestr))
+
+#Horas semanales trabajo no remunerado
+horastrabremu <- eahutotal %>% filter(estado=="Ocupado" & part_tdnr=="si" & subdominio.x=="corrientes")
+horastrabremu %>% group_by(Sexo) %>% summarise(mean(horassemanalestnr))
+
+#Horas promedio dedicadas al trabajo domestico no remunerado segun condicion de ocupacion
+horastot <- eahutotal %>% filter(part_tdnr=="si" & subdominio.x=="corrientes")
+horastot %>% group_by(estado, Sexo) %>% summarise(mean(tiempo_tdnr))
+
+
+```
+
+
+
+

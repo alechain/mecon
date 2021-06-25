@@ -1,0 +1,109 @@
+---
+title: "Estudiantes 2018 de la UNNE"
+author: "Observatorio económico"
+date: "25/2/2021"
+output: html_document
+---
+```{r setup, include=F}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(error = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+```
+
+
+```{r include=F}
+library(readr)
+library(tidyverse)
+library(formattable)
+library(extrafont)
+library(ggtext)
+library(wordcloud2)
+library(wordcloud)
+colores<- c("#29aee4","#0c8136","#e22172","#f4a018","#428cb4","#c85687","#dbac2f","#5da14a","#ff9a00")
+
+
+font_import(paths = "~/GitHub/informegenero/Open_Sans")
+loadfonts(device = "win", quiet = T)
+colores<- c("#29aee4","#0c8136","#e22172","#f4a018","#428cb4","#c85687","#dbac2f","#5da14a","#ff9a00")
+
+setwd("~/GitHub/informegenero")
+estudiantes2018<- read.csv("estudiantes 2018.csv",header = T, sep=";", encoding =  "utf-8")
+estudiantes2018<- estudiantes2018 %>% mutate(CARRERAS=case_when(CARRERAS=="MEDICINA - Plan Nuevo" ~ "MEDICINA",
+                                                                CARRERAS=="MEDICINA VETERINARIA" ~ "VETERINARIA",
+                                                                TRUE ~ CARRERAS))
+estudiantes2018<- estudiantes2018 %>% mutate(FACULTADES=case_when(FACULTADES=="ODONTOLOGIA"~ "ODONTO.",
+                                                                TRUE ~ FACULTADES))
+
+ingresantes2019<- read.csv("nuevos_inscriptos 2019.csv", header = T, sep = ";", encoding = "utf-8")
+```
+
+```{r}
+estudiantesfacu2018<- estudiantes2018 %>% group_by(FACULTADES) %>% summarise(VARONES=sum(VARONES),MUJERES=sum(MUJERES))
+
+estudiantesfacu2018<- estudiantesfacu2018%>%  mutate("Tasa de feminización"=case_when(MUJERES==0 & VARONES>0 ~ formattable::percent(0,2),
+                                                                              MUJERES>0 ~ formattable::percent((MUJERES/(VARONES+MUJERES)),2)),
+                                                     total=sum(VARONES)+sum(MUJERES),
+                                                     "Peso relativo facultad"=formattable::percent(((VARONES+MUJERES)/total),2))
+
+p<-estudiantesfacu2018 %>% ggplot(mapping=aes(x= `Tasa de feminización`, y=`Peso relativo facultad`, label=FACULTADES)) + geom_point(aes(size=MUJERES, colour=MUJERES),alpha=0.7, show.legend = F) +scale_color_gradient(low=colores[1], high=colores[2])+  geom_hline(linetype="dotted",yintercept=median(estudiantesfacu2018$`Peso relativo facultad`)) + geom_vline(linetype="dotted",xintercept =0.5) + geom_text(size=2, family="Open Sans") +labs(fill="", title = "Composición relativa de estudiantes de la UNNE", subtitle = "2018", caption = "")+  theme(text=element_text(family="Open Sans"),panel.grid = element_blank(),  axis.title = element_text(size=8), axis.line = element_line(), plot.title.position = "plot", axis.text = element_text(family = "Open Sans", color="BLACK"),aspect.ratio = 0.5,panel.background = element_blank(), title = element_text(family = "Open Sans")) +
+  annotate("text", x=0.35, y=0.18, label="Muchos estudiantes\ncon pocas mujeres", size=3, color=colores[1], family="Open Sans") +
+    annotate("text", x=0.65, y=0.18, label="Muchos estudiantes\ncon muchas mujeres", size=3, color=colores[1],family="Open Sans")+
+    annotate("text", x=0.35, y=0.055, label="Pocos estudiantes\ncon pocas mujeres", size=3, color=colores[1],family="Open Sans")+
+    annotate("text", x=0.65, y=0.055, label="Pocos estudiantes\ncon muchas mujeres", size=3, color=colores[1],family="Open Sans")
+p
+ggsave("estudiantesunne.svg")
+#plotly::ggplotly(p,tooltip = c("FACULTADES","Peso relativo facultad", "Tasa de feminización" ))
+
+```
+```{r}
+estudiantescarrera2018<- estudiantes2018 %>% group_by(CARRERAS) %>% summarise(VARONES=sum(VARONES),MUJERES=sum(MUJERES)) 
+estudiantescarrera2018<- estudiantescarrera2018 %>% mutate(CARRERAS=ifelse(CARRERAS=="CBC - CICLO BASICO COMUN",yes = "CBC ECONÓMICAS", no=CARRERAS))
+
+estudiantescarrera2018<- estudiantescarrera2018 %>% filter(VARONES!=0 & MUJERES!=0) %>%  mutate("Tasa de feminización"=case_when(MUJERES==0 & VARONES>0 ~ formattable::percent(0,2),
+                                                                              MUJERES>0 ~ formattable::percent((MUJERES/(VARONES+MUJERES)),2)),
+                                                     total=sum(VARONES)+sum(MUJERES),
+                                                     "Peso relativo carrera"=formattable::percent(((VARONES+MUJERES)/total),2),
+                                                     "Total carrera"=VARONES+MUJERES)
+estudiantescarreratotal<- estudiantescarrera2018 %>% select(word=CARRERAS,freq=`Total carrera`)
+estudiantesmujerescarreratotal<- estudiantescarrera2018 %>% select(word=CARRERAS,freq=MUJERES)
+estudiantesvaronescarreratotal<- estudiantescarrera2018 %>% select(word=CARRERAS,freq=VARONES)
+
+```
+
+### Total de estudiantes por carrera
+```{r}
+estudiantescarreratotal<- estudiantescarrera2018 %>% select(word=CARRERAS,freq=`Total carrera`)
+
+wordcloud2(estudiantescarreratotal, fontFamily = "Open Sans",color = "random-light",size = 0.5,shape = "pentagon")
+```
+
+### Total de estudiantes mujeres por carrera
+```{r}
+library(ggwordcloud)
+library(wordcloud2)
+wordcloud::wordcloud(word=estudiantesmujerescarreratotal$word, freq = estudiantesmujerescarreratotal$freq,colors = colores, family="Open Sans", min.freq = 100, scale = c(3,0.50), rot.per = 0.35, random.order = F)
+m<-wordcloud2(estudiantesmujerescarreratotal, fontFamily = "Open Sans",color = "random-light",size = 0.5, shape = "circle")
+m
+
+estudiantesmujerescarreratotal<- estudiantesmujerescarreratotal %>% filter(freq>=400) 
+m2<- estudiantesmujerescarreratotal %>%  ggplot(mapping=aes(label=word, size=freq,
+    color = factor(sample.int(10, nrow(estudiantesmujerescarreratotal), replace = TRUE)))) + geom_text_wordcloud() + theme_minimal() +
+   geom_text_wordcloud_area(eccentricity = 1)
+m2
+
+ggwordcloud2(estudiantesmujerescarreratotal[,c("word", "freq")], size = 1.5,color = "random-dark")
+ggsave("mujeres.svg")
+```
+### Total de estudiantes hombres por carrera
+
+```{r}
+wordcloud2(estudiantesvaronescarreratotal, fontFamily = "Open Sans",color = "random-light",size = 0.5, shape = "circle")
+ggwordcloud2(estudiantesvaronescarreratotal[,c("word", "freq")], size = 1.5,color = "random-dark")
+ggsave("hombres.svg")
+```
+
+
+
+
+
